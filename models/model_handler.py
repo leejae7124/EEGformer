@@ -1,7 +1,7 @@
 import torch
 from torch.nn import functional as F
 import pytorch_lightning as pl
-from models.EEGDeformer2 import Deformer
+from models.EEGformerWithAttention import Deformer
 from models.EEGNet import eegNet
 from models.TSception import TSception
 from models.EEGViT import EEGViT
