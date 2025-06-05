@@ -30,7 +30,7 @@ parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--dropout', type=float, default=0.5)
 parser.add_argument('--val-rate', type=float, default=0.2)
 
-parser.add_argument('--save-path', default='./save3/') # change this
+parser.add_argument('--save-path', default='./save_att1/') # change this
 parser.add_argument('--load-path', default='./data_processed/') # change this
 parser.add_argument('--gpu', type=int, default=0)
 parser.add_argument('--mixed-precision', type=int, default=0)

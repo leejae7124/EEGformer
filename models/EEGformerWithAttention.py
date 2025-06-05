@@ -58,6 +58,23 @@ class Attention(nn.Module): #Multi-head self-attention을 구현한 모듈.
         out = torch.matmul(attn, v)
         out = rearrange(out, 'b h n d -> b n (h d)')
         return self.to_out(out)
+    
+class IPValueAttention(nn.Module):
+    def __init__(self, d_hct, d_ip=64, d_latent=128, heads=4): #d_latent : 어텐션이 작동하는 공통 latent 공간의 차원, heads: 멀티 헤드 어텐션의 헤드 수
+        super().__init__()
+        self.q_proj = nn.Linear(d_hct, d_latent) #차원 정렬
+        self.v_proj = nn.Linear(d_ip,  d_latent, bias=False) #차원 정렬
+        self.register_buffer("fixed_key", torch.ones(1, 1, d_latent)) #모든 쿼리 위치에 대해 동일한 키 사용. attention score는 오직 쿼리(HCT) 특성에 따라 결정된다.
+        self.attn = nn.MultiheadAttention(d_latent, heads, batch_first=True)
+        self.out  = nn.Linear(d_latent, d_hct)
+
+    def forward(self, hct_tok, ip_vec):
+        B, T, _ = hct_tok.shape 
+        Q = self.q_proj(hct_tok)                 # (B,T,d), hct 출력을 쿼리로 변환
+        K = self.fixed_key.expand(B, T, -1)      # (B,T,d) 키 고정
+        V = self.v_proj(ip_vec).unsqueeze(1)     # (B,1,d) , ip vector를 attention value로 사용
+        attn_out, _ = self.attn(Q, K, V)         # (B,T,d), hct 위치마다 ip에서 필요한 정보 추출
+        return hct_tok + self.out(attn_out)      # 원래 hct 출력에 residual 보강
 
 
 class Transformer(nn.Module): #Deformer의 핵심 구조
@@ -139,6 +156,14 @@ class Transformer(nn.Module): #Deformer의 핵심 구조
             nn.ReLU(),
             nn.Dropout(0.2)
         )
+        self.ip_attns = nn.ModuleList([
+            IPValueAttention(d_hct=6144, d_ip=64, d_latent=128, heads=4),
+            IPValueAttention(d_hct=3072, d_ip=64, d_latent=128, heads=4),
+            IPValueAttention(d_hct=1536, d_ip=64, d_latent=128, heads=4),
+            IPValueAttention(d_hct=768,  d_ip=64, d_latent=128, heads=4)
+        ])
+
+
         # self.projection1 = nn.Sequential(#방법 (3): hct 각 블록의 output 차원을 ip 차원과 동일하게 맞춘다(같은 latent space에 위치하도록). Attention X. (save 3)
         #     nn.Linear(6144, 512),
         #     nn.ReLU(),
@@ -190,7 +215,11 @@ class Transformer(nn.Module): #Deformer의 핵심 구조
                 x_proj = self.projection3(x.view(x.size(0), -1))
             elif i == 3:
                 x_proj = self.projection4(x.view(x.size(0), -1))
-            combined = torch.cat([x_proj, x_info], dim=-1)
+            attn_out = self.ip_attns[i](
+                hct_tok=x_proj.unsqueeze(1),   # (B, 1, D_hct)
+                ip_vec=x_info                  # (B, 64)
+            ).squeeze(1)
+            combined = torch.cat([attn_out, x_info], dim=-1)
             dense_feature.append(combined)
             
         # x_dense = torch.cat(dense_feature, dim=-1)  # b, in_chan*depth, 각 블록에서 생성한 x_info들을 이어붙임. ip 모듈의 결과를 concat!

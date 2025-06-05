@@ -5,7 +5,7 @@ import numpy as np
 from argparse import ArgumentParser
 
 parser = ArgumentParser()
-parser.add_argument('--save-path', default='./save/logs_FATIG_Deformer')
+parser.add_argument('--save-path', default='./save_att1/logs_FATIG_Deformer')
 args = parser.parse_args()
 
 logs_directory = args.save_path
