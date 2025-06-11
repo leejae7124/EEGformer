@@ -72,9 +72,48 @@ class IPValueAttention(nn.Module):
         B, T, _ = hct_tok.shape 
         Q = self.q_proj(hct_tok)                 # (B,T,d), hct 출력을 쿼리로 변환
         K = self.fixed_key.expand(B, T, -1)      # (B,T,d) 키 고정
-        V = self.v_proj(ip_vec).unsqueeze(1)     # (B,1,d) , ip vector를 attention value로 사용
+        V = self.v_proj(ip_vec).unsqueeze(1).expand(-1, T, -1)  # (B,T,d)     # (B,1,d) , ip vector를 attention value로 사용
         attn_out, _ = self.attn(Q, K, V)         # (B,T,d), hct 위치마다 ip에서 필요한 정보 추출
         return hct_tok + self.out(attn_out)      # 원래 hct 출력에 residual 보강
+
+class IPQueryAttention(nn.Module):
+    """
+    • Q  ← IP  (B, d_ip)           ──>  (B, 1, d_latent)
+    • K  ← 고정(1)                 ──>  (B, T, d_latent)
+    • V  ← HCT tokens (B, T, d_hct) ──>  (B, T, d_latent)
+
+    출력: IP 기반으로 가중합된 HCT 요약 (B, d_latent)
+    """
+    def __init__(self, d_hct = 64, d_ip = 64, d_latent = 64, heads=4): #d_latent : 어텐션이 작동하는 공통 latent 공간의 차원, heads: 멀티 헤드 어텐션의 헤드 수
+        super().__init__()
+        self.q_proj = nn.Linear(d_ip, d_latent, bias=False) #선형 변환
+        # self.k_proj = nn.Linear(d_embed,  d_embed, bias=False) # 선형 변환
+        self.v_proj = nn.Linear(d_hct, d_latent, bias=False) # 선형 변환
+        self.register_buffer("fixed_key", torch.ones(1, 1, d_latent)) #고정 Key(=1). 길이는 hct token 길이 T에 맞춰 runtime에서 expand
+
+        self.attn = nn.MultiheadAttention(d_latent, heads, batch_first=True)
+        self.out_proj = nn.Linear(d_latent, d_hct, bias=False)
+
+    def forward(self, hct_tok, ip_vec):
+        """
+        hct_tok : (B, T, d_hct)  - 각 HCT 블록의 토큰
+        ip_vec  : (B, d_ip)      - IP 파워 벡터
+        return  : (B, d_latent)  - IP 를 Query 로 한 HCT 요약
+        """
+        B, T, _ = hct_tok.shape
+        # 1) Q : IP 벡터 → (B, 1, d_latent)
+        Q = self.q_proj(ip_vec).unsqueeze(1)       # (B, 1, d)
+        # 2) K : 고정 1 → (B, T, d_latent)
+        K = self.fixed_key.expand(B, T, -1)
+         # 3) V : HCT 토큰 → (B, T, d_latent)
+        V = self.v_proj(hct_tok)
+
+        # 4) Cross-Attention
+        attn_out, _ = self.attn(Q, K, V)          # (B, 1, d_latent)      # (B, 1, d_hct)
+        attn_out = attn_out.expand(-1, T, -1)     # (B, T, d_hct)  ← 토큰 길이에 맞춰 broadcast
+
+        # 5) Residual-add (옵션)
+        return hct_tok + attn_out
 
 
 class Transformer(nn.Module): #Deformer의 핵심 구조
@@ -157,10 +196,14 @@ class Transformer(nn.Module): #Deformer의 핵심 구조
             nn.Dropout(0.2)
         )
         self.ip_attns = nn.ModuleList([
-            IPValueAttention(d_embed=64, heads=4),
-            IPValueAttention(d_embed=64, heads=4),
-            IPValueAttention(d_embed=64, heads=4),
-            IPValueAttention(d_embed=64, heads=4)
+            # IPValueAttention(d_embed=64, heads=4),
+            # IPValueAttention(d_embed=64, heads=4),
+            # IPValueAttention(d_embed=64, heads=4),
+            # IPValueAttention(d_embed=64, heads=4)
+            IPQueryAttention(),
+            IPQueryAttention(),
+            IPQueryAttention(),
+            IPQueryAttention()
         ])
 
 
@@ -219,6 +262,14 @@ class Transformer(nn.Module): #Deformer의 핵심 구조
                 hct_tok = x.permute(0, 2, 1),  # (B, T, C)
                 ip_vec=x_info                  # (B, 64)
             ).squeeze(1)
+            if i == 0:
+                attn_out = self.projection1(attn_out.flatten(1))
+            elif i == 1:
+                attn_out = self.projection2(attn_out.flatten(1))
+            elif i == 2:
+                attn_out = self.projection3(attn_out.flatten(1))
+            elif i == 3:
+                attn_out = self.projection4(attn_out.flatten(1))
             combined = torch.cat([attn_out, x_info], dim=-1)
             dense_feature.append(combined)
             

@@ -4,6 +4,7 @@ import numpy as np
 from Task import LOSO
 import os
 
+
 parser = ArgumentParser()
 parser.add_argument('--full-run', type=int, default=1, help='If it is set as 1, you will run LOSO on the same machine.')
 parser.add_argument('--test-sub', type=int, default=0, help='If full-run is set as 0, you can use this to leave this '
@@ -30,7 +31,7 @@ parser.add_argument('--lr', type=float, default=1e-3)
 parser.add_argument('--dropout', type=float, default=0.25)
 parser.add_argument('--val-rate', type=float, default=0.2)
 
-parser.add_argument('--save-path', default='./save_att1_M/')
+parser.add_argument('--save-path', default='./save_att2/')
 parser.add_argument('--load-path', default='./data_processed/') # change this
 parser.add_argument('--gpu', type=int, default=0)
 parser.add_argument('--mixed-precision', type=int, default=0)

@@ -7,6 +7,11 @@ import torch
 import argparse
 torch.serialization.add_safe_globals([argparse.Namespace])
 
+import os
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"  # 옵션
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"        # 물리 1번만 노출
+torch.cuda.set_device(0)                        # 노출된 0번 == 실제 1번
+
 def LOSO(test_idx: list, subjects: list, experiment_ID, logs_name, args):
 
     pl.seed_everything(seed=args.random_seed)
